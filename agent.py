@@ -23,10 +23,11 @@ from langchain_ollama import ChatOllama
 from langgraph.checkpoint.memory import InMemorySaver
 
 from rag import KnowledgeRetriever, load_documents, split_documents
-from tools import calculate, get_current_time, get_weather, search_web
 
-# 加载环境变量
+# 加载环境变量（必须在导入会读取环境变量的本地模块之前）
 load_dotenv()
+
+from tools import calculate, get_current_time, get_weather, read_emails, search_web
 
 # ---------------------------------------------------------------------------
 # 1. 配置模型
@@ -46,7 +47,7 @@ llm = ChatOllama(
 # ---------------------------------------------------------------------------
 
 # 基础工具
-tools = [get_weather, get_current_time, calculate, search_web]
+tools = [get_weather, get_current_time, calculate, search_web, read_emails]
 
 # RAG 工具
 retriever = KnowledgeRetriever()
@@ -87,7 +88,7 @@ agent = create_agent(
     system_prompt=(
         "你是一个有用的 AI 助手，可以使用各种工具来帮助用户。"
         "请用中文回答用户的问题。"
-        "你可以查询天气、当前时间、进行数学计算、搜索互联网，以及检索本地知识库。"
+        "你可以查询天气、当前时间、进行数学计算、搜索互联网、读取邮件，以及检索本地知识库。"
     ),
     checkpointer=checkpointer,
 )

@@ -22,14 +22,14 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import TextLoader
 
+load_dotenv()
+
 from rag import KnowledgeRetriever, load_documents, split_documents
-from tools import calculate, get_current_time, get_weather, search_web
+from tools import calculate, get_current_time, get_weather, search_web, read_emails
 
 # ---------------------------------------------------------------------------
 # 初始化
 # ---------------------------------------------------------------------------
-
-load_dotenv()
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1")
@@ -44,7 +44,7 @@ def build_agent():
         temperature=0,
     )
 
-    tools = [get_weather, get_current_time, calculate, search_web]
+    tools = [get_weather, get_current_time, calculate, search_web, read_emails]
 
     retriever = KnowledgeRetriever()
 
@@ -77,7 +77,7 @@ def build_agent():
         system_prompt=(
             "你是一个有用的 AI 助手，可以使用各种工具来帮助用户。"
             "请用中文回答用户的问题。"
-            "你可以查询天气、当前时间、进行数学计算、搜索互联网，以及检索本地知识库。"
+            "你可以查询天气、当前时间、进行数学计算、搜索互联网、读取邮件，以及检索本地知识库。"
         ),
         checkpointer=checkpointer,
     )
