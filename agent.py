@@ -1,9 +1,10 @@
 """
-基于 LangChain + Ollama 的本地 Agent 示例
+基于 LangChain + Ollama 本地 Agent 主入口
 
 功能：
 - 使用 Ollama 本地模型 (llama3.1)
-- 自定义工具 (天气查询、时间查询、计算器)
+- 自定义工具 (天气查询、时间查询、计算器、网络搜索)
+- RAG 知识库检索
 - 对话记忆 (多轮对话)
 - 流式输出
 
@@ -14,13 +15,15 @@
 """
 
 import os
-from datetime import datetime
 
 from dotenv import load_dotenv
 from langchain.agents import create_agent
-from langchain_ollama import ChatOllama
 from langchain.tools import tool
+from langchain_ollama import ChatOllama
 from langgraph.checkpoint.memory import InMemorySaver
+
+from rag import KnowledgeRetriever, load_documents, split_documents
+from tools import calculate, get_current_time, get_weather, search_web
 
 # 加载环境变量
 load_dotenv()
@@ -30,7 +33,7 @@ load_dotenv()
 # ---------------------------------------------------------------------------
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3.5:4b")
 
 llm = ChatOllama(
     model=OLLAMA_MODEL,
@@ -42,58 +45,40 @@ llm = ChatOllama(
 # 2. 定义工具
 # ---------------------------------------------------------------------------
 
-
-@tool
-def get_weather(city: str) -> str:
-    """查询指定城市的天气情况。返回模拟数据。"""
-    weather_data = {
-        "beijing": "晴，温度 22°C，微风",
-        "shanghai": "多云，温度 25°C，东南风 3 级",
-        "shenzhen": "小雨，温度 28°C，南风 2 级",
-        "guangzhou": "雷阵雨，温度 30°C，西南风 4 级",
-        "hangzhou": "晴，温度 24°C，东风 2 级",
-    }
-    city_lower = city.lower()
-    return weather_data.get(city_lower, f"抱歉，暂无 {city}的天气数据。")
-
-
-@tool
-def get_current_time() -> str:
-    """获取当前的日期和时间。"""
-    now = datetime.now()
-    return f"当前时间: {now.strftime('%Y年%m月%d日 %H:%M:%S')}"
-
-
-@tool
-def calculate(expression: str) -> str:
-    """计算数学表达式。支持加减乘除和括号。
-
-    例如: "2 + 3 * 4", "(10 - 5) / 2"
-    """
-    try:
-        # 仅允许安全的数学字符
-        allowed = set("0123456789+-*/.() ")
-        if not all(c in allowed for c in expression):
-            return "错误: 表达式包含非法字符"
-        result = eval(expression, {"__builtins__": {}}, {})  # noqa: S307
-        return f"{expression} = {result}"
-    except Exception as e:
-        return f"计算错误: {e}"
-
-
-@tool
-def search_web(query: str) -> str:
-    """搜索互联网。"""
-    return f"搜索结果: {query}"
-
-# 注册工具列表
+# 基础工具
 tools = [get_weather, get_current_time, calculate, search_web]
+
+# RAG 工具
+retriever = KnowledgeRetriever()
+
+# 启动时加载并索引已有知识文档
+_existing_docs = load_documents()
+if _existing_docs:
+    _splits = split_documents(_existing_docs)
+    if _splits:
+        retriever.add_documents(_splits)
+
+
+@tool
+def query_knowledge_base(query: str) -> str:
+    """从本地知识库中检索相关信息。当用户问到私有文档、笔记或上传文件内容时使用。"""
+    docs = retriever.search(query)
+    if not docs:
+        return "知识库中没有找到相关内容。"
+    results = []
+    for i, doc in enumerate(docs, 1):
+        snippet = doc.page_content[:300]
+        source = doc.metadata.get("source", "未知来源")
+        results.append(f"[{i}] {snippet}\n   来源: {source}")
+    return "\n\n".join(results)
+
+
+tools.append(query_knowledge_base)
 
 # ---------------------------------------------------------------------------
 # 3. 创建 Agent
 # ---------------------------------------------------------------------------
 
-# 内存检查点 - 支持多轮对话记忆
 checkpointer = InMemorySaver()
 
 agent = create_agent(
@@ -102,6 +87,7 @@ agent = create_agent(
     system_prompt=(
         "你是一个有用的 AI 助手，可以使用各种工具来帮助用户。"
         "请用中文回答用户的问题。"
+        "你可以查询天气、当前时间、进行数学计算、搜索互联网，以及检索本地知识库。"
     ),
     checkpointer=checkpointer,
 )
